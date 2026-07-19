@@ -8,9 +8,25 @@ CREATE TABLE IF NOT EXISTS retail.raw_events(
     user_id text NOT NULL,
     campaign_id text,
     product_id text,
+    quantity integer,
+    unit_price numeric(10,2),
+    search_term text,
     occurred_at timestamptz NOT NULL,
     received_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS retail.campaign_purchase_revenue(
+    tenant_id text not null,
+    campaign_id text not null,
+    event_id uuid not null,
+    user_id text not null,
+    revenue_amount numeric(10,2),
+    occurred_at timestamptz not null,
+    PRIMARY KEY (tenant_id, campaign_id, event_id)
+);
+
 CREATE index if not exists ix_raw_events_tenant_campaign on retail.raw_events
 (tenant_id, campaign_id, event_type)
+
+CREATE index if not exists ix_campaign_purchase_revenue_lookup on retail.campaign_purchase_revenue
+(tenant_id, campaign_id, occurred_at);
