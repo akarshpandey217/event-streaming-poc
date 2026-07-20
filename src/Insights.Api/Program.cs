@@ -1,7 +1,18 @@
+using Insights.Api.DTO;
+using Insights.Api.Querying;
+using Npgsql;
+using Prometheus;
+using Shared;
+
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+var connectionString = builder.Configuration.GetConnectionString("Postgres") ??
+    throw new InvalidOperationException("ConnectionStrings: Postgres is not configured");
+
+builder.Services.AddSingleton(NpgsqlDataSource.Create(connectionString));
+builder.Services.AddSingleton<CampaignMetricsQueryService>();
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -14,31 +25,66 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+app.UseHttpMetrics();
+app.MapMetrics();
+app.MapGet("/health", ()=>Results.Ok(new {status = "ok"})).WithName("Health").WithOpenApi();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
+MapMetricEndpoint(app, "impressions", EventType.AdImpression);
+MapMetricEndpoint(app, "clicks", EventType.AdClick);
+MapMetricEndpoint(app, "clickToBasket", EventType.ClickToBasket);
+MapMetricEndpoint(app, "purchases", EventType.Purchase);
 
-app.MapGet("/weatherforecast", () =>
+app.MapGet("/ad/{campaignId}/revenue", async (
+    string campaignId,
+    DateTimeOffset? from,
+    DateTimeOffset? to,
+    HttpRequest httpReq,
+    CampaignMetricsQueryService query,
+    CancellationToken ct) =>
 {
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
+    var tenantId = httpReq.Headers["X-Tenant-Id"].ToString();
+    if (string.IsNullOrWhiteSpace(tenantId))
+    {
+        return Results.BadRequest(new { error = "X-Tenant-Id header is required"});
+    }
+
+    var revenue = await query.SumRevenueAsync(tenantId, campaignId, from, to, ct);
+    return Results.Ok(new CampaignRevenueResponse
+    {
+        CampaignId = campaignId,
+        Metric = "revenue",
+        Revenue = revenue,
+        From = from,
+        To = to
+    });
+});
 
 app.Run();
 
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
+static void MapMetricEndpoint(WebApplication app, string route, EventType eventType)
 {
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
+    app.MapGet($"/ad/{{campaignId}}/{route}", async (
+        string campaignId,
+        DateTimeOffset? from,
+        DateTimeOffset? to,
+        HttpRequest httpReq,
+        CampaignMetricsQueryService queryService,
+        CancellationToken ct) =>
+    {
+        var tenantId = httpReq.Headers["X-Tenant-Id"].ToString();
+        if (string.IsNullOrWhiteSpace(tenantId))
+        {
+            return Results.BadRequest(new { error = "X-Tenant-Id header is required"});
+        }
+
+        var count = await queryService.CountUniqueUsersAsync(tenantId, campaignId, eventType, from, to, ct);
+        return Results.Ok(new CampaignMetricResponse
+        {
+            CampaignId = campaignId,
+            Metric = route,
+            UniqueUsers = count,
+            From = from,
+            To = to
+        });
+    });
 }
