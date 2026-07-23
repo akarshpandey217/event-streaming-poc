@@ -1,4 +1,6 @@
-create table if not exists retail.session_last_click(
+CREATE SCHEMA IF NOT EXISTS event_streaming_poc;
+
+create table if not exists event_streaming_poc.session_last_click(
     tenant_id text not null,
     session_id text not null,
     campaign_id text not null,
@@ -6,7 +8,7 @@ create table if not exists retail.session_last_click(
     primary key (tenant_id, session_id)
 );
 
-create table if not exists retail.campaign_event_users(
+create table if not exists event_streaming_poc.campaign_event_users(
     tenant_id text not null,
     campaign_id text not null,
     event_type text not null,
@@ -16,4 +18,4 @@ create table if not exists retail.campaign_event_users(
 );
 
 create index if not exists ix_campaign_event_users_lookup on
-retail.campaign_event_users (tenant_id, campaign_id, event_type, first_seen_at);
+event_streaming_poc.campaign_event_users (tenant_id, campaign_id, event_type, first_seen_at);

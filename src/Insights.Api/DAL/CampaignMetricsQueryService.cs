@@ -23,7 +23,7 @@ public class CampaignMetricsQueryService
         CancellationToken ct)
     {
         const string sql = """
-        SELECT count(*) FROM retail.campaign_event_users
+        SELECT count(*) FROM event_streaming_poc.campaign_event_users
         WHERE tenant_id = @tenant_id
             AND campaign_id = @campaign_id
             AND event_type = @event_type
@@ -49,7 +49,7 @@ public class CampaignMetricsQueryService
         CancellationToken ct)
     {
         const string sql = """
-        SELECT coalesce(sum(revenue_amount), 0) FROM retail.campaign_purchase_revenue
+        SELECT coalesce(sum(revenue_amount), 0) FROM event_streaming_poc.campaign_purchase_revenue
         WHERE tenant_id = @tenant_id
             AND campaign_id = @campaign_id
             AND (@from is null or first_seen_at >= @from)

@@ -1,0 +1,97 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: event-streaming-postgres
+    environment:
+      POSTGRES_USER: retail_user
+      POSTGRES_PASSWORD: retail_user_password
+      POSTGRES_DB: event_streaming_poc
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retail_user -d event_streaming_poc"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    container_name: event-streaming-pubsub-emulator
+    command: >
+      gcloud beta emulators pubsub start
+      --host-port=0.0.0.0:8085
+      --project=event-streaming-poc
+    ports:
+      - "8085:8085"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fs http://localhost:8085/v1/projects/event-streaming-poc/topics >/dev/null || exit 1"
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    
+  processor-worker:
+    build:
+      context: .
+      dockerfile: src/Processor.Worker/Dockerfile
+    container_name: event-streaming-processor-worker
+    environment:
+      PUBSUB_EMULATOR_HOST: "pubsub-emulator:8085"
+      PubSub__ProjectId: "event-streaming-poc"
+      PubSub__TopicId: "retail-events"
+      PubSub__SubscriptionId: "retail-events-worker"
+      ConnectionStrings__Postres: "Host=postgres;Port=5432;Database=event_streaming_poc;Username=retail_user;Password=retail_user_password"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      pubsub-emulator:
+        condition: service_healthy
+  
+  ingest-api:
+    build:
+      context: .
+      dockerfile: src/Ingest.Api/Dockerfile
+    container_name: event-streaming-ingest-api
+    environment:
+      PUBSUB_EMULATOR_HOST: "pubsub-emulator:8085"
+      PubSub__ProjectId: "event-streaming-poc"
+      PubSub__TopicId: "retail-events"
+      PubSub__SubscriptionId: "retail-events-worker"
+    ports:
+      - "5090:8080"
+    depends_on:
+      pubsub-emulator:
+        condition: service_healthy
+
+
+  insights-api:
+    build:
+      context: .
+      dockerfile: src/Insights.Api/Dockerfile
+    container_name: event-streaming-insights-api
+    environment:
+      ConnectionStrings__Postres: "Host=postgres;Port=5432;Database=event_streaming_poc;Username=retail_user;Password=retail_user_password"
+    ports:
+      - "5091:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+  
+  simulator:
+    build:
+      context: .
+      dockerfile: src/Simulator/Dockerfile
+    container_name: event-streaming-simulator
+    environment:
+      INGEST_API_URL: "http://ingest-api:8080"
+    profiles: ["tools"]
+    depends_on:
+      - ingest-api
+volumes:
+  postgres-data:

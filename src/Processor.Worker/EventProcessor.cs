@@ -74,7 +74,7 @@ public class EventProcessor
     private async Task<string?> FindAttributedCampaignAsync(NpgsqlConnection connection, NpgsqlTransaction tx, RetailEvent evnt, CancellationToken ct)
     {
         const string selectSql = """
-        select campaign_id, clicked_at from retail.session_last_click where
+        select campaign_id, clicked_at from event_streaming_poc.session_last_click where
         tenant_id = @tenant_id and session_id = @session_id
         """;
         await using var cmd = new NpgsqlCommand(selectSql, connection, tx);
@@ -105,7 +105,7 @@ public class EventProcessor
         NpgsqlConnection connection, NpgsqlTransaction tx, RetailEvent evnt, string campaignId, decimal revenue, CancellationToken ct)
     {
         const string sql = """
-        insert into retail.campaign_purchase_revenue(tenant_id, campaign_id, event_id, user_id, revenue_amount, occured_at)
+        insert into event_streaming_poc.campaign_purchase_revenue(tenant_id, campaign_id, event_id, user_id, revenue_amount, occured_at)
         values (@tenant_id, @campaign_id, @event_id, @user_id, @revenue_amount, @occured_at)
         on conflict (tenant_id, campaign_id, event_id) do nothing
         """;
@@ -123,7 +123,7 @@ public class EventProcessor
         NpgsqlConnection connection, NpgsqlTransaction tx, RetailEvent evnt, CancellationToken ct)
     {
         const string sql = """
-        INSERT into retail.session_last_click (tenant_id, session_id, campaign_id, clicked_at)
+        INSERT into event_streaming_poc.session_last_click (tenant_id, session_id, campaign_id, clicked_at)
         values (@tenant_id, @session_id, @campaign_id, @clicked_at)
         on conflict (tenant_id, session_id) DO UPDATE
             SET campaign_id = excluded.campaign_id, clicked_at = excluded.clicked_at
@@ -133,7 +133,7 @@ public class EventProcessor
         cmd.Parameters.AddWithValue("tenant_id",evnt.TenantId);
         cmd.Parameters.AddWithValue("session_id", evnt.SessionId);
         cmd.Parameters.AddWithValue("campaign_id",evnt.CampaignId!);
-        cmd.Parameters.AddWithValue("occured_at",evnt.OccuredAt);
+        cmd.Parameters.AddWithValue("clicked_at",evnt.OccuredAt);
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
@@ -142,7 +142,7 @@ public class EventProcessor
         CancellationToken ct)
     {
         const string sql = """
-        Insert into retail.campaign_event_users (tenant_id, campaign_id, event_type, user_id, first_seen_at)
+        Insert into event_streaming_poc.campaign_event_users (tenant_id, campaign_id, event_type, user_id, first_seen_at)
         values (@tenant_id, @campaign_id, @event_type, @user_id, @first_seen_at)
         ON CONFLICT (tenant_id, campaign_id, event_type, user_id) DO NOTHING
         """;
@@ -159,7 +159,7 @@ public class EventProcessor
     private static async Task InsertRawEventAsync(NpgsqlConnection connection, NpgsqlTransaction tx, RetailEvent evnt, CancellationToken ct)
     {
         const string sql = """
-        INSERT into retail.raw_events
+        INSERT into event_streaming_poc.raw_events
             (event_id, tenant_id, event_type, session_id, user_id, campaign_id, product_id, quantity, unit_price, search_term, occurred_at)
         VALUES
             (@event_id, @tenant_id, @event_type, @session_id, @user_id, @campaign_id, @product_id, @quantity, @unit_price, @search_term, @occurred_at)
@@ -167,16 +167,17 @@ public class EventProcessor
         """;
 
         await using var cmd = new NpgsqlCommand(sql, connection, tx);
-         cmd.Parameters.AddWithValue("tenant_id", evnt.TenantId);
+        cmd.Parameters.AddWithValue("event_id", evnt.EventId);
+        cmd.Parameters.AddWithValue("tenant_id", evnt.TenantId);
         cmd.Parameters.AddWithValue("event_type", evnt.EventType.ToString());
-        cmd.Parameters.AddWithValue("user_id",evnt.UserId);
         cmd.Parameters.AddWithValue("session_id", evnt.SessionId);
-        cmd.Parameters.AddWithValue("occured_at",evnt.OccuredAt);
+        cmd.Parameters.AddWithValue("user_id",evnt.UserId);
         cmd.Parameters.AddWithValue("campaign_id",(object?)evnt.CampaignId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("product_id",(object?)evnt.ProductId ?? DBNull.Value);
         cmd.Parameters.AddWithValue("quantity",(object?)evnt.Quantity ?? DBNull.Value);
         cmd.Parameters.AddWithValue("unit_price",(object?)evnt.UnitPrice ?? DBNull.Value);
         cmd.Parameters.AddWithValue("search_term",(object?)evnt.SearchTerm ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("occurred_at", evnt.OccuredAt);
         await cmd.ExecuteNonQueryAsync(ct);
 
     }
